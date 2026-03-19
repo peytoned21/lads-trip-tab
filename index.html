@@ -878,6 +878,7 @@ function fabTap(){
     fab.classList.toggle('cancel',isOpen);
   }
 }
+function toggleMyTxns(){
   myTxnsOnly=!myTxnsOnly;
   const btn=document.getElementById('myTxnToggle');
   if(btn){
@@ -1311,6 +1312,7 @@ function renderAnalytics(){
     }
   }
 }
+function renderCrew(){
   const list=document.getElementById('crewList');
   list.innerHTML=S.members.map((m,i)=>{
     const color=CREW_COLORS[i%CREW_COLORS.length];
