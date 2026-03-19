@@ -415,7 +415,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;opac
         </div>
         <div style="display:flex;gap:7px;margin-top:10px;">
           <button class="btn btn-ghost" onclick="hideFullForm()" style="flex:1;">Back</button>
-          <button class="btn btn-wave" onclick="addExpense()" style="flex:2;">Add Expense</button>
+          <button class="btn btn-wave" id="expSubmitBtn" onclick="addExpense()" style="flex:2;">Add Expense</button>
         </div>
       </div>
     </div>
@@ -900,6 +900,7 @@ function addExpense(){
   // Prevent double submit
   const btn=document.querySelector('#expForm .btn-wave');
   if(btn){btn.disabled=true;btn.textContent='Adding…';}
+  const resetBtn=()=>{if(btn){btn.disabled=false;btn.textContent=editingId?'Save Changes':'Add Expense';}};
   let exp={id:Date.now(),description:desc,amount:amt,category:cat,paidBy,day,time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})};
   if(splitMode==='unequal'){
     const customAmts={};let total=0;
@@ -908,10 +909,10 @@ function addExpense(){
       const v=parseFloat(inp?inp.value:0)||0;
       if(v>0){customAmts[m]=v;total+=v;}
     });
-    if(Math.abs(total-amt)>0.02){showToast('⚠️ Custom amounts must equal total');return;}
+    if(Math.abs(total-amt)>0.02){showToast('⚠️ Custom amounts must equal total');resetBtn();return;}
     exp.customAmts=customAmts;exp.splitWith=Object.keys(customAmts);
   } else {
-    if(!splitWith.length){showToast('⚠️ Select at least one person to split with');return;}
+    if(!splitWith.length){showToast('⚠️ Select at least one person to split with');resetBtn();return;}
     exp.splitWith=[...splitWith];
   }
   // Capture prior payments if section was open
@@ -930,6 +931,7 @@ function addExpense(){
   priorPayments={};priorPayOpen=false;
   const ppw=document.getElementById('priorPayWrap');if(ppw)ppw.style.display='none';
   const pta=document.getElementById('priorToggleArrow');if(pta)pta.textContent='▶';
+  resetBtn();
   hideAll();save();renderAll();
 }
 function getDayLabel(){
@@ -948,6 +950,8 @@ function startEdit(id){
   splitWith=e.splitWith?[...e.splitWith]:[...S.members];
   unequalAmts=e.customAmts?{...e.customAmts}:{};
   showFullForm();
+  const submitBtn=document.getElementById('expSubmitBtn');
+  if(submitBtn){submitBtn.textContent='Save Changes';}
   setTimeout(()=>{
     const fd=document.getElementById('f-desc');const fa=document.getElementById('f-amt');
     const fc=document.getElementById('f-cat');const fday=document.getElementById('f-day');
