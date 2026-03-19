@@ -239,6 +239,27 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;opac
 .prior-input::placeholder{color:rgba(155,93,229,0.3);}
 .prior-summary{font-size:0.62rem;margin-top:8px;display:flex;justify-content:space-between;}
 
+/* BALANCE BANNER */
+.balance-banner{
+  border-radius:14px;padding:16px 20px;text-align:center;
+  display:flex;flex-direction:column;align-items:center;gap:4px;
+}
+.balance-banner.owed{background:rgba(6,214,160,0.08);border:1px solid rgba(6,214,160,0.3);}
+.balance-banner.owe{background:rgba(255,89,94,0.08);border:1px solid rgba(255,89,94,0.3);}
+.balance-banner.even{background:rgba(6,190,225,0.06);border:1px solid rgba(6,190,225,0.2);}
+.banner-label{font-size:0.62rem;letter-spacing:3px;text-transform:uppercase;font-weight:700;opacity:0.6;}
+.banner-amt{font-family:'Bebas Neue';font-size:3rem;line-height:1;letter-spacing:2px;}
+.banner-sub{font-size:0.72rem;opacity:0.55;margin-top:2px;}
+
+/* FREELOADERS */
+.freeloader-card{
+  background:rgba(255,190,11,0.05);border:1px solid rgba(255,190,11,0.15);
+  border-radius:12px;padding:14px 16px;margin-bottom:7px;
+  display:flex;align-items:center;gap:12px;
+}
+.freeloader-name{flex:1;font-weight:700;font-size:0.9rem;}
+.freeloader-tag{font-size:0.65rem;color:var(--sun);font-weight:700;letter-spacing:1px;text-transform:uppercase;}
+
 /* EMPTY */
 .empty{color:var(--muted);text-align:center;padding:40px 20px;font-size:0.84rem;letter-spacing:0.5px;}
 .empty-icon{font-size:2.2rem;margin-bottom:8px;}
@@ -444,6 +465,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;opac
 
   <!-- SETTLE UP -->
   <div id="tab-settle" class="tab-pane">
+    <div id="myBalanceBanner" style="margin-bottom:14px;display:none;"></div>
     <div class="sec">Running Totals</div>
     <div class="totals-grid" id="totalsGrid"></div>
     <div class="sec" style="justify-content:space-between;">
@@ -461,6 +483,8 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;opac
     <div class="day-breakdown" id="catBreakdown"></div>
     <div class="sec">By Person</div>
     <div class="day-breakdown" id="personBreakdown"></div>
+    <div class="sec" id="freeLoaderSec" style="display:none;">Still Freeloading</div>
+    <div id="freeLoaderList"></div>
   </div>
 
   <!-- CREW -->
@@ -489,6 +513,25 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;opac
 </div>
 
 <div class="toast" id="winToast"></div>
+
+<!-- FLOATING ACTION BUTTON -->
+<button id="fab" onclick="fabTap()" aria-label="Log expense">+</button>
+
+<style>
+#fab{
+  position:fixed;bottom:28px;right:22px;z-index:400;
+  width:58px;height:58px;border-radius:50%;border:none;
+  background:linear-gradient(135deg,var(--wave),#0594c5);
+  color:var(--deep);font-size:2rem;font-weight:700;
+  box-shadow:0 4px 20px rgba(6,190,225,0.45);
+  cursor:pointer;transition:all 0.2s;
+  display:flex;align-items:center;justify-content:center;
+  line-height:1;
+}
+#fab:hover{transform:scale(1.08);box-shadow:0 6px 28px rgba(6,190,225,0.6);}
+#fab:active{transform:scale(0.95);}
+#fab.cancel{background:rgba(255,255,255,0.1);color:var(--white);font-size:1.4rem;box-shadow:none;border:1px solid rgba(255,255,255,0.15);}
+</style>
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -728,6 +771,8 @@ function hideAll(){
   document.getElementById('expForm').style.display='none';
   document.getElementById('toggleFormBtn').textContent='+ LOG EXPENSE';
   document.getElementById('toggleFormBtn').classList.remove('cancel');
+  const fab=document.getElementById('fab');
+  if(fab){fab.textContent='+';fab.classList.remove('cancel');}
 }
 function showFullForm(){
   if(S.frozen){showToast('🔒 Trip is frozen — unfreeze to edit');return;}
@@ -814,7 +859,25 @@ function updateUnequalTotals(){
   if(aa)aa.textContent=fmt(assigned);
   if(ra){ra.textContent=fmt(rem);ra.style.color=Math.abs(rem)<0.01?'var(--green)':rem>0?'var(--sun)':'var(--coral)';}
 }
-function toggleMyTxns(){
+function fabTap(){
+  // Only show FAB on expenses tab — switch to it if needed
+  const logTab=document.getElementById('tab-log');
+  if(!logTab.classList.contains('active')){
+    switchTab('log',document.querySelectorAll('.tab')[0]);
+  }
+  if(formMode==='none'||formMode==='full'){
+    toggleForm();
+  } else {
+    hideAll();
+  }
+  // Sync FAB appearance
+  const fab=document.getElementById('fab');
+  if(fab){
+    const isOpen=formMode!=='none';
+    fab.textContent=isOpen?'✕':'+';
+    fab.classList.toggle('cancel',isOpen);
+  }
+}
   myTxnsOnly=!myTxnsOnly;
   const btn=document.getElementById('myTxnToggle');
   if(btn){
@@ -1087,6 +1150,39 @@ function renderSettle(){
   const settlements=calcSettlements(balances);
   const grid=document.getElementById('totalsGrid');
   const slist=document.getElementById('settleList');
+
+  // ── My Balance Banner ──
+  const banner=document.getElementById('myBalanceBanner');
+  if(banner){
+    if(S.me && S.expenses.length>0){
+      const net=balances[S.me]||0;
+      const abs=Math.abs(net);
+      banner.style.display='block';
+      if(net>0.5){
+        banner.innerHTML=`<div class="balance-banner owed">
+          <div class="banner-label">You are owed</div>
+          <div class="banner-amt" style="color:var(--green);">+${fmt(net)}</div>
+          <div class="banner-sub">Sit tight — the lads will sort you out</div>
+        </div>`;
+      } else if(net<-0.5){
+        const mySettlements=settlements.filter(s=>s.from===S.me);
+        const sub=mySettlements.length?`Pay ${mySettlements.map(s=>s.to).join(' & ')} below`:'See settlements below';
+        banner.innerHTML=`<div class="balance-banner owe">
+          <div class="banner-label">You owe</div>
+          <div class="banner-amt" style="color:var(--coral);">${fmt(abs)}</div>
+          <div class="banner-sub">${sub}</div>
+        </div>`;
+      } else {
+        banner.innerHTML=`<div class="balance-banner even">
+          <div class="banner-label">You're all square</div>
+          <div class="banner-amt" style="color:var(--wave);">✓</div>
+          <div class="banner-sub">Nothing to settle up</div>
+        </div>`;
+      }
+    } else {
+      banner.style.display='none';
+    }
+  }
   grid.innerHTML=S.members.map((m,i)=>{
     const paid=memberPaid(m);const owes=memberOwes(m);const net=balances[m]||0;
     const isPos=net>=0;const color=CREW_COLORS[i%CREW_COLORS.length];
@@ -1190,9 +1286,31 @@ function renderAnalytics(){
       <div class="db-amt" style="color:${CREW_COLORS[i%CREW_COLORS.length]};">${fmt(paid)}</div>
     </div>`;
   }).join('');
-}
 
-function renderCrew(){
+  // Freeloaders — people who haven't paid for anything yet
+  const freeLoaderSec=document.getElementById('freeLoaderSec');
+  const freeLoaderList=document.getElementById('freeLoaderList');
+  if(freeLoaderSec&&freeLoaderList&&S.expenses.length>0){
+    const freeloaders=S.members.filter(m=>memberPaid(m)===0);
+    if(freeloaders.length>0){
+      freeLoaderSec.style.display='flex';
+      const jokes=['hasn\'t bought a round yet','still reaching for a wallet','TBD on generosity','hands suspiciously in pockets','🫳 empty hands'];
+      freeLoaderList.innerHTML=freeloaders.map((m,i)=>{
+        const color=CREW_COLORS[S.members.indexOf(m)%CREW_COLORS.length];
+        return `<div class="freeloader-card">
+          <div style="width:34px;height:34px;border-radius:50%;background:${color};display:flex;align-items:center;justify-content:center;font-weight:800;color:var(--deep);font-size:0.9rem;flex-shrink:0;">${m[0]}</div>
+          <div>
+            <div class="freeloader-name">${m}</div>
+            <div class="freeloader-tag">${jokes[i%jokes.length]}</div>
+          </div>
+        </div>`;
+      }).join('');
+    } else {
+      freeLoaderSec.style.display='none';
+      freeLoaderList.innerHTML='';
+    }
+  }
+}
   const list=document.getElementById('crewList');
   list.innerHTML=S.members.map((m,i)=>{
     const color=CREW_COLORS[i%CREW_COLORS.length];
@@ -1353,6 +1471,7 @@ function confetti(){
 }
 
 // ── EXPOSE TO WINDOW (required for inline onclick handlers in module scripts) ──
+window.fabTap=fabTap;
 window.toggleForm=toggleForm;
 window.showFullForm=showFullForm;
 window.hideFullForm=hideFullForm;
