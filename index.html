@@ -239,6 +239,37 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;opac
 .prior-input::placeholder{color:rgba(155,93,229,0.3);}
 .prior-summary{font-size:0.62rem;margin-top:8px;display:flex;justify-content:space-between;}
 
+/* ADJUSTMENTS */
+.adj-row{
+  display:grid;grid-template-columns:1fr 24px 1fr 90px 28px;
+  align-items:center;gap:6px;margin-bottom:8px;
+}
+.adj-input{
+  background:rgba(0,0,0,0.25);border:1px solid var(--border);
+  border-radius:8px;padding:8px 10px;color:var(--white);
+  font-family:'Outfit';font-size:0.82rem;outline:none;
+  transition:border-color 0.15s;width:100%;
+}
+.adj-input:focus{border-color:rgba(155,93,229,0.4);}
+.adj-input.amt{color:var(--sun);font-family:'JetBrains Mono';font-weight:600;}
+.adj-input option{background:var(--d2);}
+.adj-arrow{color:var(--muted);font-size:0.9rem;text-align:center;}
+.adj-del{background:none;border:none;color:rgba(255,255,255,0.2);cursor:pointer;font-size:1rem;padding:4px;transition:color 0.1s;}
+.adj-del:hover{color:var(--coral);}
+.adj-label-row{margin-bottom:8px;}
+.adj-label-input{
+  width:100%;background:rgba(0,0,0,0.25);border:1px solid rgba(155,93,229,0.25);
+  border-radius:8px;padding:8px 12px;color:var(--purple);
+  font-family:'Outfit';font-size:0.82rem;font-weight:700;outline:none;
+  transition:border-color 0.15s;
+}
+.adj-label-input:focus{border-color:rgba(155,93,229,0.5);}
+.adj-label-input::placeholder{color:rgba(155,93,229,0.3);}
+.adj-group{
+  background:var(--d2);border:1px solid rgba(155,93,229,0.15);
+  border-radius:12px;padding:12px 14px;margin-bottom:10px;
+}
+
 /* BALANCE BANNER */
 .balance-banner{
   border-radius:14px;padding:16px 20px;text-align:center;
@@ -466,6 +497,23 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;opac
   <!-- SETTLE UP -->
   <div id="tab-settle" class="tab-pane">
     <div id="myBalanceBanner" style="margin-bottom:14px;display:none;"></div>
+
+    <!-- ADJUSTMENTS -->
+    <div style="margin-bottom:16px;">
+      <div class="sec" style="justify-content:space-between;cursor:pointer;" onclick="toggleAdjustments()">
+        <span>⚡ Adjustments</span>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span id="adjSummary" style="font-size:0.65rem;color:var(--muted);font-family:'Outfit';text-transform:none;letter-spacing:0;"></span>
+          <span id="adjArrow" style="color:var(--wave);font-size:0.8rem;">▶</span>
+        </div>
+      </div>
+      <div id="adjWrap" style="display:none;">
+        <div class="ib ib-p" style="margin-bottom:10px;">Enter direct balance adjustments — e.g. Squares payouts. <strong>From</strong> pays <strong>To</strong>.</div>
+        <div id="adjList"></div>
+        <button class="btn btn-ghost" style="width:100%;margin-top:8px;font-size:0.78rem;" onclick="addAdjustmentRow()">+ Add Adjustment</button>
+      </div>
+    </div>
+
     <div class="sec">Running Totals</div>
     <div class="totals-grid" id="totalsGrid"></div>
     <div class="sec" style="justify-content:space-between;">
@@ -562,6 +610,7 @@ const FRESH = () => ({
   members: [...DEFAULT_MEMBERS],
   expenses: [],
   frozen: false,
+  adjustments: [], // [{id, label, from, to, amount}]
 });
 
 let saving = false;
@@ -598,7 +647,7 @@ async function save(){
   saveTimer=setTimeout(async()=>{
     saving=true;
     try {
-      const payload={members:S.members,expenses:S.expenses,frozen:S.frozen};
+      const payload={members:S.members,expenses:S.expenses,frozen:S.frozen,adjustments:S.adjustments||[]};
       await setDoc(REF,payload);
     } catch(e){console.error('Save failed',e);showToast('⚠️ Save failed — check connection');}
     saving=false;
@@ -612,6 +661,7 @@ onSnapshot(REF, (snap) => {
     S.members = d.members && d.members.length ? d.members : [...DEFAULT_MEMBERS];
     S.expenses = d.expenses || [];
     S.frozen = d.frozen || false;
+    S.adjustments = d.adjustments || [];
   } else {
     // First time — doc doesn't exist yet, use defaults and save them up
     S.members = [...DEFAULT_MEMBERS];
@@ -720,6 +770,12 @@ function calcBalances(){
         }
       });
     }
+  });
+  // Apply manual adjustments (e.g. Squares)
+  (S.adjustments||[]).forEach(adj=>{
+    if(!adj.from||!adj.to||!adj.amount)return;
+    bal[adj.to]=(bal[adj.to]||0)+adj.amount;   // 'to' is owed more
+    bal[adj.from]=(bal[adj.from]||0)-adj.amount; // 'from' owes more
   });
   return bal;
 }
@@ -878,6 +934,78 @@ function fabTap(){
     fab.classList.toggle('cancel',isOpen);
   }
 }
+// ── ADJUSTMENTS ──
+let adjOpen = false;
+// S.adjustments structure: [{id, label, from, to, amount}]
+// We group by label for display — each label is one "adjustment group"
+
+function toggleAdjustments(){
+  adjOpen=!adjOpen;
+  document.getElementById('adjWrap').style.display=adjOpen?'block':'none';
+  document.getElementById('adjArrow').textContent=adjOpen?'▼':'▶';
+  if(adjOpen)renderAdjustmentRows();
+}
+
+function renderAdjustmentRows(){
+  const list=document.getElementById('adjList');
+  if(!list)return;
+  const adjs=S.adjustments||[];
+  if(!adjs.length){
+    list.innerHTML='<div style="font-size:0.75rem;color:var(--muted);text-align:center;padding:10px 0;">No adjustments yet — click + Add below</div>';
+    return;
+  }
+  list.innerHTML=adjs.map((adj,i)=>`
+    <div class="adj-row" id="adjrow_${adj.id}">
+      <select class="adj-input" onchange="updateAdj(${adj.id},'from',this.value)">
+        ${S.members.map(m=>`<option value="${esc(m)}" ${adj.from===m?'selected':''}>${m}</option>`).join('')}
+      </select>
+      <div class="adj-arrow">→</div>
+      <select class="adj-input" onchange="updateAdj(${adj.id},'to',this.value)">
+        ${S.members.map(m=>`<option value="${esc(m)}" ${adj.to===m?'selected':''}>${m}</option>`).join('')}
+      </select>
+      <input class="adj-input amt" type="number" placeholder="0.00" min="0" step="0.01"
+        value="${adj.amount||''}" onchange="updateAdj(${adj.id},'amount',parseFloat(this.value)||0)"/>
+      <button class="adj-del" onclick="deleteAdj(${adj.id})">✕</button>
+    </div>
+    <div style="margin-bottom:8px;">
+      <input class="adj-label-input" placeholder="Label (e.g. Squares)" value="${adj.label||''}"
+        onchange="updateAdj(${adj.id},'label',this.value)"/>
+    </div>`).join('');
+}
+
+function addAdjustmentRow(){
+  if(!S.adjustments)S.adjustments=[];
+  const newAdj={
+    id:Date.now(),
+    label:'Squares',
+    from:S.members[0],
+    to:S.members[1],
+    amount:0,
+  };
+  S.adjustments.push(newAdj);
+  save();renderAdjustmentRows();renderSettle();
+}
+
+function updateAdj(id,field,value){
+  if(!S.adjustments)return;
+  const adj=S.adjustments.find(a=>a.id===id);
+  if(!adj)return;
+  adj[field]=value;
+  save();renderSettle();updateAdjSummary();
+}
+
+function deleteAdj(id){
+  if(!confirm('Remove this adjustment?'))return;
+  S.adjustments=(S.adjustments||[]).filter(a=>a.id!==id);
+  save();renderAdjustmentRows();renderSettle();updateAdjSummary();
+}
+
+function updateAdjSummary(){
+  const el=document.getElementById('adjSummary');
+  if(!el)return;
+  const count=(S.adjustments||[]).length;
+  el.textContent=count>0?`${count} adjustment${count!==1?'s':''}`:'';}
+
 function toggleMyTxns(){
   myTxnsOnly=!myTxnsOnly;
   const btn=document.getElementById('myTxnToggle');
@@ -1058,7 +1186,7 @@ function duplicateExpense(id){
   },50);
   showToast('📋 Duplicated — edit and save');
 }
-function renderAll(){renderHeader();renderExpenses();renderSettle();renderAnalytics();renderCrew();renderCloseout();}
+function renderAll(){renderHeader();renderExpenses();renderSettle();renderAnalytics();renderCrew();renderCloseout();updateAdjSummary();if(adjOpen)renderAdjustmentRows();}
 
 function renderHeader(){
   const total=S.expenses.reduce((s,e)=>s+e.amount,0);
@@ -1473,6 +1601,10 @@ function confetti(){
 }
 
 // ── EXPOSE TO WINDOW (required for inline onclick handlers in module scripts) ──
+window.toggleAdjustments=toggleAdjustments;
+window.addAdjustmentRow=addAdjustmentRow;
+window.updateAdj=updateAdj;
+window.deleteAdj=deleteAdj;
 window.fabTap=fabTap;
 window.toggleForm=toggleForm;
 window.showFullForm=showFullForm;
