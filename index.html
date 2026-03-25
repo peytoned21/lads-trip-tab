@@ -643,9 +643,9 @@ S.me = localStorage.getItem('gst_me') || null;
 // ── FIREBASE SYNC ──
 let saveTimer=null;
 async function save(){
+  saving=true; // set immediately to block onSnapshot overwrites
   clearTimeout(saveTimer);
   saveTimer=setTimeout(async()=>{
-    saving=true;
     try {
       const payload={members:S.members,expenses:S.expenses,frozen:S.frozen,adjustments:S.adjustments||[]};
       await setDoc(REF,payload);
